@@ -20,7 +20,8 @@
   (let ((split (split-sequence:split-sequence #\d die)))
     (if (= (length split) 1) (parse-integer (car split))
 	(if (> (length split) 2) (error (format nil "~a is not a valid die" die))
-	    (cons (parse-integer (first split))
+	    (cons (if (empty-p (first split)) 1
+		      (parse-integer (first split)))
 		  (parse-integer (second split)))))))
 
 (defmacro roll (dice)
