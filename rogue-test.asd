@@ -12,6 +12,7 @@
   :components ((:file "package")
 	       (:file "util")
 	       (:file "dice")
+	       (:file "level")
 	       (:file "entity")
 	       (:file "interact")
                (:file "rogue-test")))

@@ -141,7 +141,7 @@
 
 (defun refresh-screen ()
   (clear)
-  (draw-field *screen*)
+  (draw-level *level* (entity-position *camera*) (list (getmaxx *screen*) (getmaxy *screen*)))
   (draw-entities *screen*)
   (move 0 0)
   (addstr (format nil "~a: ~a/~a ATK:~a"
@@ -155,6 +155,8 @@
     (addstr *echo*)    
     (setf *echo* nil))
   (refresh))
+
+(defvar *level* nil)
 
 (defun main-step ()  
   (loop for entity in *entities*
@@ -173,7 +175,9 @@
 				:attack "2d8+5"))
   (setf *camera* *player*)
   (push *player* *entities*)
+  (push  (make-instance 'monster :name "goblin" :char #\g :x 10 :behaviour :chaser) *entities*)
   (setf *ticks* 0)
+  (setf *level* (generate-topology 10))
   (loop
     (continuable (main-step))))
 
