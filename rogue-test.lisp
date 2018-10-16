@@ -177,7 +177,7 @@
   (push *player* *entities*)
   (push  (make-instance 'monster :name "goblin" :char #\g :x 10 :behaviour :chaser) *entities*)
   (setf *ticks* 0)
-  (setf *level* (generate-topology 10))
+  (setf *level* (generate-topology 2))
   (loop
     (continuable (main-step))))
 

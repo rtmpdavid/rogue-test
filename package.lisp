@@ -2,6 +2,7 @@
 
 (defpackage #:rogue-test
   (:use #:cl
-	#:cl-ncurses)
+	#:cl-ncurses
+	#:alexandria)
   (:export :start-with-swank))
 

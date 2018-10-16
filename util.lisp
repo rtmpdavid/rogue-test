@@ -44,10 +44,7 @@
 (defun half-h (dims)
   (truncate (h dims) 2))
 
-(defun clamp (n a b)
-  (max (min n b) a))
-
-(defmacro compose (n-args &rest predicates)
+(defmacro compose-pred (n-args &rest predicates)
   (let ((args (loop for i from 0 to (1- n-args)
 	      	    collect (gensym))))
     `#'(lambda ,args
@@ -90,9 +87,9 @@
     (:bot-left :up-right )
     (:bot-right :up-left)))
 
-(defvar *axises* '(:up :down :left :right))
-(defvar *diags* '(:up-left :bot-right :up-right :bot-left))
-(defvar *dirs-nonzero* (append *axises* *diags*))
+(defvar *cardinal* '(:up :down :left :right))
+(defvar *diagonal* '(:up-left :bot-right :up-right :bot-left))
+(defvar *dirs-nonzero* (append *cardinal* *diagonal*))
 (defvar *dirs* (append (list :nop) *dirs-nonzero*))
 
 (defun pos+dir (pos dir)

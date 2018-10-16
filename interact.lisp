@@ -84,6 +84,18 @@
 
 (defmethod entity-interact ((a actor) (b entity) (interaction (eql :eat)) value from-move)
   (when (edible-p a b)
-    (when (alive-p (push b (actor-kills a))))
+    (when (alive-p b)
+      (push b (actor-kills a)))
+    (when (find b (actor-inventory a))
+	(setf (actor-inventory a) (delete b (actor-inventory a))))
     (setf *entities* (delete b *entities*))))
 
+(defmethod entity-interact :after ((a player) (b corpse) (interaction (eql :eat)) value from-move)
+  (let ((hp (roll :1d10)))
+    (if (corpse-rotten b)
+	(progn
+	  (setf *echo* (format nil "You eat ~a, you loose ~a hp" (entity-uniq-name b) hp))
+	  (take-damage a hp))
+	(progn
+	  (setf *echo* (format nil "You eat ~a, you regain ~a hp" (entity-uniq-name b) hp))
+	  (regain-hp a hp)))))

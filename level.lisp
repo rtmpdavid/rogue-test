@@ -1,9 +1,21 @@
 (in-package :rogue-test)
 
+(defparameter dim-roll :3d4+3)
+
+(defun mapref (map position)
+  (aref map (x position) (y position)))
+
+(defun (setf mapref) (value map position)
+  (setf (aref map (x position) (y position)) value))
+
+(defun pos-in-range (position level)
+  (and (in-range (x position) 0 (1- (array-dimension level 0)))
+       (in-range (y position) 0 (1- (array-dimension level 1)))))
+
 ;;; Styles:
 ;;; dungeon - your normal run-of-the-mill dungeon room: a bunch of rooms connected by tunnels
 
-(defmacro loop-in-map ((pos map &optional (offset nil offset-p) (dimensions nil dimensions-p))
+(defmacro loop-in-map ((position map &optional (offset nil offset-p) (dimensions nil dimensions-p))
 		       &body body)
   (let ((range (gensym))
 	(begin (gensym))
@@ -13,7 +25,7 @@
 	    (,range (pos+ ,begin ,(if dimensions-p dimensions `(pos- (array-dimensions ,map) (list 1 1))))))
        (loop for ,x from (x ,begin) to (w ,range)
 	     do (loop for ,y from (y ,begin) to (h ,range)
-		      do (let ((,pos (list ,x ,y)))
+		      do (let ((,position (list ,x ,y)))
 			   ,@body))))))
 
 (defun draw-level (level cam-pos scr-dims) 
@@ -31,66 +43,12 @@
 	      (+ (- (x pos) (x cam-pos)) (truncate (w scr-dims) 2)))
 	(addch (char-code sym))))))
 
-(defun mapref (map position)
-  (aref map (x position) (y position)))
+(defmacro with-level-copy ((copy level) &body body)
+  `(let ((,copy (copy-array ,level)))
+     ,@body))
 
-(defun (setf mapref) (value map position)
-  (setf (aref map (x position) (y position)) value))
-
-;; (defparameter dim-roll :3d4+2)
-;; (defparameter dist-roll :d10+3)
-
-(defparameter dim-roll :2d4+4)
-(defparameter min-dist 1)
-
-(defun update-pos-val (level pos value min-dist)
-  (when (and (not (zerop (1- value)))
-	     (pos-in-range pos level))
-    (let ((pos-value (if (not (numberp (mapref level pos))) min-dist
-			 (mapref level pos))))
-      (when (< pos-value (1- value))
-	(prog1 (setf (mapref level pos) (1- value))
-	  (fill-adjacent level pos min-dist))))))
-
-(defun fill-adjacent (level pos min-dist)
-  (let ((pos-value (if (not (numberp (mapref level pos))) (1+ min-dist)
-		       (mapref level pos))))
-    (when (not (zerop pos-value))
-      (some #'(lambda (i) i)
-	    (list (update-pos-val level (pos+dir pos :up)  pos-value min-dist)
-		  (update-pos-val level (pos+dir pos :down) pos-value min-dist)
-		  (update-pos-val level (pos+dir pos :left) pos-value min-dist)
-		  (update-pos-val level (pos+dir pos :right) pos-value min-dist))))))
-
-(defun fill-deadzone (level min-dist)
-  (let ((tmp (alexandria:copy-array level)))
-    (let ((modified t))
-      (loop while modified
-	    do (loop-in-map (pos level)
-		 (setf modified (fill-adjacent tmp pos min-dist)))))
-    tmp))
-
-(defun filled-p (level position)
-  (not (eq 0 (aref level (x position) (y position)))))
-
-(defun collides-p (level position dimensions)
-  (block loop
-    (loop-in-map (pos level position dimensions)
-      (when (filled-p level pos)
-	(return-from loop pos)))))
-
-(defun pos-in-rect (pos dims offset)
-  (and (in-range (x pos) 0 (+ (x offset) (w dims)))
-       (in-range (y pos) 0 (+ (y offset) (h dims)))))
-
-(defun pos-in-range (pos level)
-  (and (in-range (x pos) 0 (1- (array-dimension level 0)))
-       (in-range (y pos) 0 (1- (array-dimension level 1)))))
-
-(defun eq-at-offset (level pos offset value)
-  (let ((new-pos (list (+ (x pos) (x offset)) (+ (y pos) (y offset)))))
-    (and (pos-in-range new-pos level)
-	 (eq value (aref level (x new-pos) (y new-pos))))))
+;; (defun cast-rays (level position &optional (max-distance nil max-distance-p))
+;;   )
 
 (defun paint-room (level room)
   (let ((position (getf room :pos))
@@ -103,7 +61,7 @@
 	  (setf (mapref level pos) :wall)
 	  (setf (mapref level pos) :room)))))
 
-(defun gen-rooms-2 (amount)
+(defun gen-rooms (amount)
   (flet ((room-collide-p (a b)
 	   (let* ((a-a (getf a :pos))
 		  (a-b (getf a :size))
@@ -165,16 +123,6 @@
 		      (format t "~a" sym)))
   	   (terpri)))
 
-
-(defun fill-pathways-candidates (level ))
-
-(defun find-adjacent (level position &rest values)
-  (loop for dir in '(:up :down :left :right)
-	for pos = (pos+ position (direction-delta dir))
-	if (and (pos-in-range pos level)
-		(find (aref level (x pos) (y pos)) values))
-	  collect pos))
-
 (defun find-at (level position directions &rest values)
   (loop for dir in directions
 	for pos = (pos+ position (direction-delta dir))
@@ -182,52 +130,40 @@
 		(find (mapref level pos) values))
 	  collect pos))
 
-(defun count-at (level position directions value)
-  (loop for dir in directions
-	for pos = (pos+dir position dir)
-	if (and (pos-in-range pos level)
-		(equal value (mapref level pos)))
-	  summing 1))
-
-(defun filled-at (level pos direction)
-  (filled-p level (pos+ pos (direction-delta direction))))
-
-(defun level-at (level position)
-  (aref level (x position) (y position)))
-
-(defun set-at (level position dir value)
-  (let ((pos (pos+ position (direction-delta dir))))
-    (setf (aref level (x pos) (y pos)) value)))
+(defun count-at (level position directions value)  
+  (let ((rv 0))
+    (loop for dir in directions
+	 for pos = (pos+dir position dir)
+	 if (and (pos-in-range pos level)
+		 (equal value (mapref level pos)))
+	   do (incf rv)
+	      (list value pos dir))
+    rv))
 
 (defun dir-in-range (level position dir)
   (let ((pos (pos+dir position dir)))
     (and (in-range (x pos) 0 (1- (array-dimension level 0)))
 	 (in-range (y pos) 0 (1- (array-dimension level 1))))))
 
-(defun eq-at (level position dir value)
-  (eq-at-offset level position (direction-delta dir) value))
-
-(defun random-elt (seq)
-  (elt seq (random (length seq))))
-
-(defun can-put-maze (level pos)
-  )
-
-(defun id (value)
-  value)
-
 (defun can-branch-maze (level position dir)
   (let ((pos (pos+dir position dir)))
     (and (pos-in-range pos level)
 	 (not (mapref level pos))
 	 (zerop (count-at level pos *dirs* :room))
-	 (let ((ajdacent-old (find-adjacent level position :maze))
-	       (ajdacent-new (find-at level pos (remove (direction-opposite dir) *dirs*) :maze)))
-	   (every #'(lambda (pos) (find pos ajdacent-old :test 'equal))
-		  ajdacent-new)))))
+	 (case (count-at level position *cardinal* :maze)
+	   (0 (= (count-at level pos *diagonal* :maze) 0))
+	   (1 (and (= (count-at level pos *cardinal* :maze) 1)
+		   (mapref level position)))
+	   (2 (and (every #'(lambda (diag-pos)
+			      (find diag-pos (find-at level position *cardinal* :maze)
+				    :test #'equal))
+			  (find-at level pos *diagonal* :maze))
+
+	       (= (count-at level pos *cardinal* :maze) 1)
+		   (mapref level position)))))))
 
 (defun direction-pool (level position)
-  (remove-if-not #'(lambda (dir) (can-branch-maze level position dir)) *axises*))
+  (remove-if-not #'(lambda (dir) (can-branch-maze level position dir)) *cardinal*))
 
 (defun choose-direction (level pos)
   (let ((pool (direction-pool level pos)))
@@ -237,6 +173,7 @@
   (let ((pos (copy-seq position))
 	(branch-targets nil))
     (loop for dir = (choose-direction level pos)
+	  do (dbg-print-pos level pos)
 	  while dir
 	  do (loop for pool = (direction-pool level pos)
 		   do (setf (mapref level pos) :maze)
@@ -252,75 +189,70 @@
 		     (second target))
 	     (setf branch-targets (delete target branch-targets)))))
 
-(defun map-dirs (pos dirs)
-  (mapcar #'(lambda (dir) (pos+dir pos dir)) dirs))
-
 (defun gen-passages (level)
   (loop-in-map (pos level)
-    (when (and (not (mapref level pos))
-	       (zerop (+ (count-at level pos *dirs* :room)
-			 (count-at level pos *dirs* :wall)
-			 (count-at level pos *dirs* :maze))))
+    (when (and (direction-pool level pos)
+	       (not (mapref level pos)))
       (gen-pasage level pos))))
 
 (defun dbg-print-pos (level pos)
-  ;; (let ((tmp (alexandria:copy-array level)))
-  ;;   (setf (mapref tmp pos) :dbg)
-  ;;   (print-level tmp)
-  ;;   (sleep 0.1)
-  ;;   (terpri))
-  )
+  (let ((tmp (alexandria:copy-array level)))
+    (setf (mapref tmp pos) :dbg)
+    (print-level tmp)
+    (sleep 0.1)
+    (terpri)))
 
-(defun pos-in-room (pos room)
-  (let ((room-pos (getf room :pos))
+(defun pos-in-room (position room)
+  (let ((room-position (getf room :pos))
 	(size (getf room :size)))
-    (and (in-range (x pos) (x room-pos) (w size))
-	 (in-range (y pos) (y room-pos) (h size)))))
+    (and (in-range (x position) (x room-position) (w size))
+	 (in-range (y position) (y room-position) (h size)))))
 
-(defun corner-p (level pos)
-  (and (= (count-at level pos *axises* :wall) 2)
-       (= (count-at level pos *diags* :room) 1)
-       (= (count-at level pos *axises* :room) 0)))
+(defun corner-p (level position)
+  (and (= (count-at level position *cardinal* :wall) 2)
+       (= (count-at level position *diagonal* :room) 1)
+       (= (count-at level position *cardinal* :room) 0)))
 
 (defun walk-maze (start room rooms level)
-  (let ((connections (make-hash-table))
-	(deadends nil))
-    (let* ((tmp (alexandria:copy-array (getf level :level)))
-	   (branches nil)
-	   (pos (first (find-at tmp start *axises* :maze)))
-	   (dist 0))
-      (loop while (and pos (not (eq (mapref tmp pos) :maze-filled)))
-	    do (setf (mapref tmp pos) :maze-filled)
-	       (let ((adj (first (find-at tmp pos *axises* :wall))))
-		 (when (and adj
-			    (not (pos-in-room adj room))
-			    (not (corner-p tmp adj))
-			    (= (count-at tmp pos *axises* :room) 0))
-		   (let ((room-b (find-if #'(lambda (room)
-					      (pos-in-room adj room))
-					  rooms)))
-		     (let ((val (gethash (getf room-b :n) connections)))
-		       (when (or (not val)
-				 (< dist (getf val :dist)))
-			 (setf (gethash (getf room-b :n) connections)
-			       (list :rooms (sort (list (getf room :n) (getf room-b :n)) #'<)
-				     :dist dist
-				     :start start
-				     :end adj))))))
-		 (incf dist))
-	       (let ((next-pos (find-at tmp pos *axises* :maze)))
-		 (if next-pos
-		     (progn (setf pos (car next-pos))			    
-			    (loop for branch in (cdr next-pos)
-				  do (push (list branch dist) branches)))
-		     (progn
-		       (setf deadends (adjoin pos deadends :test #'equal))
-		       (when branches
-			 (setf pos (first (car branches))
-			       dist (second (car branches))
-			       branches (cdr branches))))))))
-    (list :connections (alexandria:hash-table-values connections)
-	  :deadends deadends)))
+  (with-level-copy (tmp (getf level :level))
+   (let ((connections (make-hash-table))
+	 (deadends nil)
+	 (branches nil)
+	 (pos (first (find-at tmp start *cardinal* :maze)))
+	 (dist 0))
+     (loop while pos
+	   until (eq (mapref tmp pos) :maze-filled)
+	   for next-pos = (find-at tmp pos *cardinal* :maze)
+	   do (setf (mapref tmp pos) :maze-filled)
+	      (let ((adj (first (find-at tmp pos *cardinal* :wall))))
+		(when (and adj
+			   (not (pos-in-room adj room))
+			   (not (corner-p tmp adj))
+			   (= (count-at tmp pos *cardinal* :room) 0))
+		  (let ((room-b (find-if #'(lambda (room)
+					     (pos-in-room adj room))
+					 rooms)))
+		    (let ((val (gethash (getf room-b :n) connections)))
+		      (when (or (not val)
+				(< dist (getf val :dist)))
+			(setf (gethash (getf room-b :n) connections)
+			      (list :rooms (sort (list (getf room :n) (getf room-b :n)) #'<)
+				    :dist dist
+				    :start start
+				    :end adj))))))
+		(incf dist))
+	   if next-pos
+	     do (progn (setf pos (car next-pos))		       
+		       (loop for branch in (cdr next-pos)
+			     do (push (list branch dist) branches)))
+	   else 
+	     do (progn
+		  (setf deadends (adjoin pos deadends :test #'equal))
+		  (when branches
+		    (setf pos (first (car branches))
+			  dist (second (car branches))
+			  branches (cdr branches)))))
+     (list :connections (alexandria:hash-table-values connections) :deadends deadends))))
 
 (defun gen-connections (level)
   (let ((connections (make-hash-table :test #'equal))
@@ -339,7 +271,7 @@
 				    (< (getf con :dist) (getf val :dist)))
 			       do (setf (gethash (getf con :rooms) connections) con))
 		       (loop for deadend in (getf result :deadends)
-			     do (setf deadends (adjoin deadend deadends :test #'equalp))))))
+		       	     do (setf deadends (adjoin deadend deadends :test #'equalp))))))
 	      (loop do (incf x)
 		    while (< (- x (x pos)) (1- (w size)))
 		    do (walk))
@@ -353,44 +285,48 @@
 		    while (> (- y (y pos)) 0)
 		    do (walk))))
     (loop for con in (alexandria:hash-table-values connections)
-	  if (= (count-at (getf level :level) (getf con :start) *axises* :door) 0)
+	  if (= (count-at (getf level :level) (getf con :start) *cardinal* :door) 0)
 	    do (setf (mapref (getf level :level) (getf con :start)) :door)
-	  if (= (count-at (getf level :level) (getf con :end) *axises* :door) 0)
+	  if (= (count-at (getf level :level) (getf con :end) *cardinal* :door) 0)
 	    do (setf (mapref (getf level :level) (getf con :end)) :door))
     deadends))
 
 (defun remove-deadends (level deadends)
   (loop for pos in deadends
-	do (loop while (and (= (count-at level pos *axises* :maze) 1)
-			    (= (count-at level pos *axises* :door) 0))
+	do (loop while (and (= (count-at level pos *cardinal* :maze) 1)
+			    (= (count-at level pos *cardinal* :door) 0))
 		 do (dbg-print-pos level pos)
 		    (setf (mapref level pos) nil
-			  pos (first (find-at level pos *axises* :maze))))))
+			  pos (first (find-at level pos *cardinal* :maze))))))
 
 (defun add-random-doors (level)
-  (loop-in-map (pos level)
-    (if (and (not (mapref level pos))
-	     (= (count-at level pos *axises* :maze) 2)
-	     (= (count-at level pos *axises* :door) 0)
-	     (or (= (count-at level pos '(:left :right) :maze) 2)
-		 (= (count-at level pos '(:up :down) :maze) 2))
-	     (toss-coin)
-	     (toss-coin)
-	     (toss-coin))
-	(setf (mapref level pos) :maze))))
+  (declare (ignore level))
+  ;; (loop-in-map (pos level)
+  ;;   (if (and (not (mapref level pos))
+  ;; 	     (= (count-at level pos *cardinal* :maze) 2)
+  ;; 	     (= (count-at level pos *cardinal* :door) 0)
+  ;; 	     (or (= (count-at level pos '(:left :right) :maze) 2)
+  ;; 		 (= (count-at level pos '(:up :down) :maze) 2))
+  ;; 	     (toss-coin)
+  ;; 	     (toss-coin)
+  ;; 	     (toss-coin))
+  ;; 	(setf (mapref level pos) :maze)))
+  )
 
 (defun gen-labyrinth (level)
   (gen-passages (getf level :level))
-  (remove-deadends (getf level :level) (gen-connections level))
+  ;; remove-deadends (getf level :level)
+  (gen-connections level)
+  (print-level (getf level :level))
   ;; (add-random-doors (getf level :level))
   )
 
 (defun generate-dungeon (n-rooms)
-  (let* ((level (gen-rooms-2 n-rooms)))
+  (let* ((level (gen-rooms n-rooms)))
     (loop for room in (getf level :rooms)
 	  do (paint-room (getf level :level) room))
     (gen-labyrinth level)
-    (print-level (getf level :level))
+    ;; (print-level (getf level :level))
     (getf level :level)))
 
 (defun generate-topology (number-of-rooms &optional (style :dungeon))

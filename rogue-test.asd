@@ -6,6 +6,7 @@
   :license "Specify license here"
   :serial t
   :depends-on (:swank
+	       :alexandria
 	       :split-sequence
 	       :cl-ncurses
 	       :trivial-signal)

@@ -151,6 +151,9 @@
 (defgeneric take-damage (destructable amount)
   (:documentation "Deal damage to an entity, and do all side-effects"))
 
+(defgeneric regain-hp (destructable amount)
+  (:documentation "Reagain some hp, and do all side-effects"))
+
 ;;;This returns t if an actor entity is alive.
 (defgeneric alive-p (actor)) 		
 
@@ -286,18 +289,6 @@
   (let ((coords (entity-move-result entity direction)))
     (entities-position (first coords) (second coords))))
 
-(defun direction-delta (direction)
-  (case direction
-    (:up (list 0 -1))
-    (:down (list 0 1))
-    (:left (list -1 0))
-    (:right (list 1 0))
-    (:up-left (list -1 -1))
-    (:up-right (list 1 -1))
-    (:bot-left (list -1 1))
-    (:bot-right (list 1 1))
-    (:nop (list 0 0))))
-
 (defun entity-move-result (entity value)
   (typecase value
     (sequence (list (first value) (second value)))
@@ -317,6 +308,12 @@
       (let ((corpse (make-corpse mortal :decomposition-t (entity-hp-max mortal))))
 	(setf (elt *entities* (position mortal *entities*)) corpse)))
     val))
+
+(defmethod regain-hp ((destructable destructable) amount)
+  (incf (entity-hp destructable) amount)
+  (when (> (entity-hp destructable)
+	   (entity-hp-max destructable))
+    (setf (entity-hp destructable) (entity-hp-max destructable))))
 
 (defmethod alive-p ((actor actor))
   (typecase actor
@@ -392,7 +389,7 @@
 				  (entity-uniq-name thing))))))
     ;; Eat something
     (#\e (let ((thing (entity-selector (actor-inventory *player*) "eat")))
-	   (when thing
+	   (when thing	     
 	     (entity-interact *player* thing :eat nil nil))))))
 
 (defmethod enemy-p ((a player) (b monster))
